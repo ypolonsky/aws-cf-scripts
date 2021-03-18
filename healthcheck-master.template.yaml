@@ -1,0 +1,107 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description:  Master CloudFormation stack to setup all components of Health Check Lambda Function
+Parameters:
+  S3Bucket:
+    Description: S3 Bucket Name
+    Type: String
+  Environment:
+    Description: Environment tier
+    Type: String
+    AllowedValues:
+      - dev
+      - test
+      - qa
+      - stage
+      - prod
+  VpcId:
+    Description: Current VPC Id
+    Type: String
+  VpcSubnetId1:
+    Description: First VPC subnet ID of corresponding EC2 instance
+    Type: String
+  VpcSubnetId2:
+    Description: Second VPC subnet ID of corresponding EC2 instance
+    Type: String
+  VpcDefaultSgId:
+    Description: Current VPC default security group id
+    Type: String
+
+Resources:
+  LambdaRoleStack:
+    Type: "AWS::CloudFormation::Stack"
+    Description: Creates Roles for HealthCheck Lambda funtion and HealthCheck Alarm Notification Lambda function
+    Properties:
+      TemplateURL: !Sub
+        - 'https://${S3Bucket}.s3.amazonaws.com/healthcheck-iam-lambda-role.template.yaml'
+        - { S3Bucket: !Ref S3Bucket }
+      Parameters:
+        Environment: !Ref Environment
+
+  SecurityGroupsStack:
+    Type: "AWS::CloudFormation::Stack"
+    Description: Creates Security groups for VPC endpont and for Lambda function
+    Properties:
+      TemplateURL: !Sub
+        - 'https://${S3Bucket}.s3.amazonaws.com/healthcheck-ec2-security-groups.template.yaml'
+        - { S3Bucket: !Ref S3Bucket }
+      Parameters:
+        Environment: !Ref Environment
+        VpcId: !Ref VpcId
+        VpcDefaultSgId: !Ref VpcDefaultSgId
+
+  LambdaFunctionStack:
+    Type: "AWS::CloudFormation::Stack"
+    Description: >-
+      Creates an empty Lambda function to test given URL for health.
+      Created another Lambda function to process alarms produced by the first function
+      and send notifications to appropriate emails
+    Properties:
+      TemplateURL: !Sub
+        - 'https://${S3Bucket}.s3.amazonaws.com/healthcheck-lambda-function.template.yaml'
+        - { S3Bucket: !Ref S3Bucket }
+      Parameters:
+        Environment: !Ref Environment
+        LambdaHealthCheckRoleArn: !GetAtt LambdaRoleStack.Outputs.LambdaHealthCheckRoleArn
+        LambdaHealthCheckAlarmRoleArn: !GetAtt LambdaRoleStack.Outputs.LambdaHealthCheckAlarmRoleArn
+        VpcSubnetId1: !Ref VpcSubnetId1
+        VpcSubnetId2: !Ref VpcSubnetId2
+        SgId: !Ref VpcDefaultSgId
+        HealthcheckLambdaSGId: !GetAtt SecurityGroupsStack.Outputs.HealthcheckLambdaSGId
+  VpcEndpointsStack:
+    Type: "AWS::CloudFormation::Stack"
+    Properties:
+      TemplateURL: !Sub
+        - 'https://${S3Bucket}.s3.amazonaws.com/healthcheck-ec2-vpcendpoints.template.yaml'
+        - { S3Bucket: !Ref S3Bucket }
+      Parameters:
+        VpcId: !Ref VpcId
+        SubnetId: !Ref VpcSubnetId1
+        VPCEndpointSGId: !GetAtt SecurityGroupsStack.Outputs.VPCEndpointSGId
+
+Outputs:
+  LambdaHealthCheckRoleArn:
+    Description: ARN of Lambda Health Check role.
+    Value: !GetAtt LambdaRoleStack.Outputs.LambdaHealthCheckRoleArn
+  HealthcheckLambdaSGId:
+    Description: HealthcheckLambdaSG security group ID
+    Value: !GetAtt SecurityGroupsStack.Outputs.HealthcheckLambdaSGId
+  VPCEndpointSGId:
+    Description: VPCEndpointSG security group ID
+    Value: !GetAtt SecurityGroupsStack.Outputs.VPCEndpointSGId
+  LambdaHealthCheckId:
+    Description: ID of Health Check Lambda function.
+    Value: !GetAtt LambdaFunctionStack.Outputs.LambdaHealthCheckId
+  LambdaHealthCheckArn:
+    Description: ARN of Health Check Lambda function.
+    Value: !GetAtt LambdaFunctionStack.Outputs.LambdaHealthCheckArn
+  VpcEndpontSecretsId:
+    Description: VPC Endpoint Secrets Manager Id
+    Value: !GetAtt VpcEndpointsStack.Outputs.VpcEndpontSecretsId
+  SnsHealthCheckAlarmTopic:
+    Description: ARN of SNS Health Check Alarm Topic
+    Value: !GetAtt LambdaFunctionStack.Outputs.SnsHealthCheckAlarmTopic
+  LogGroupHealthCheckName:
+    Description: ID of Health Check Lambda log group.
+    Value: !GetAtt LambdaFunctionStack.Outputs.LogGroupHealthCheckName
+
+    

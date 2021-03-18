@@ -1,0 +1,203 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Creates an empty Lambda function to test given URL for health.
+  Created another Lambda function to process alarms produced by the first function
+  and send notifications to appropriate emails
+Parameters:
+  Environment:
+    Description: Environment tier
+    Type: String
+    AllowedValues:
+      - dev
+      - test
+      - qa
+      - stage
+      - prod
+  LambdaHealthCheckRoleArn:
+    Description: ARN of role for Lambda HealthCheck function.
+    Type: String
+  LambdaHealthCheckAlarmRoleArn:
+    Description: ARN of role for Lambda HealthCheck Alarm function.
+    Type: String
+  VpcSubnetId1:
+    Description: First VPC subnet ID of corresponding EC2 instance
+    Type: String
+  VpcSubnetId2:
+    Description: Second VPC subnet ID of corresponding EC2 instance
+    Type: String
+  SgId:
+    Description: Default Secirity Group ID for VPC
+    Type: String
+  HealthcheckLambdaSGId:
+    Description: Lambda Secirity Group ID to connect to VPCe
+    Type: String
+
+Resources:
+  lambdaHealthCheck:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: >-
+        Lambda function tests given URL for health. Able to authenticate itself using Siteminder iTrust.
+        Must be connected to VPC to access applications running within VPC
+      Runtime: nodejs12.x
+      Role: !Ref LambdaHealthCheckRoleArn
+      Handler: lambda.handler
+      Code:
+        ZipFile: |
+          exports.handler = function(event, context) {
+            colsole.log("JSON.stringify(event))
+          }
+      FunctionName: !Join
+        - '-'
+        - - lambda-healthcheck
+          - !Ref Environment
+      TracingConfig:
+        Mode: Active
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref SgId
+          - !Ref HealthcheckLambdaSGId
+        SubnetIds:
+          - !Ref VpcSubnetId1
+          - !Ref VpcSubnetId2
+
+  lambdaHealthCheckAsyncConfig:
+    Type: AWS::Lambda::EventInvokeConfig
+    Description:  To make sure that the Lambda function will not retry
+    Properties:
+      MaximumRetryAttempts: 1
+      FunctionName: !Ref lambdaHealthCheck
+      Qualifier: $LATEST
+
+  logGroupHealthCheck:
+    Type: AWS::Logs::LogGroup
+    Description: >-
+      CloudWatch Log Group for Health Check Lambda function.
+      Contains Metric Filter and Metric to create CloudWatch Alarm
+    DependsOn: lambdaHealthCheck
+    Properties:
+      LogGroupName: !Join
+        - ''
+        - - '/aws/lambda/'
+          - !Ref lambdaHealthCheck
+
+  metricFilterHealthCheck:
+    Type: AWS::Logs::MetricFilter
+    Description: Contains Metric Filter and Metric to create CloudWatch Alarm
+    DependsOn: logGroupHealthCheck
+    Properties:
+      FilterPattern: '{$.status = ERROR}'
+      LogGroupName: !Ref logGroupHealthCheck
+      MetricTransformations:
+        - MetricValue: 1
+          MetricNamespace: healthcheck
+          MetricName: hcError
+
+  lambdaHealthCheckAlarm:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: >-
+        Lambda function receives message from SNS topic produced by CloudWatch alarm.
+        It retrieves the necessary data from the previous lambda function log group
+        and sends custom notification to appropriate topic
+      Runtime: nodejs12.x
+      Role: !Ref LambdaHealthCheckAlarmRoleArn
+      Handler: index.handler
+      Code:
+        ZipFile: |
+          exports.handler = function(event, context) {
+            colsole.log("JSON.stringify(event))
+          }
+      FunctionName: !Join
+        - '-'
+        - - lambda-healthcheck-alarm
+          - !Ref Environment
+      TracingConfig:
+        Mode: Active
+
+  logGroupHealthCheckAlarm:
+    Type: AWS::Logs::LogGroup
+    Description: >-
+      CloudWatch Log Group for Health Check Alarm Lambda function.
+    DependsOn: lambdaHealthCheckAlarm
+    Properties:
+      LogGroupName: !Join
+        - ''
+        - - '/aws/lambda/'
+          - !Ref lambdaHealthCheckAlarm
+
+  snsHealthCheckAlarmTopic:
+    Type: AWS::SNS::Topic
+    Description: SNS topic to send CloudWatch alarm generated messages
+    DependsOn: lambdaHealthCheckAlarm
+    Properties:
+      DisplayName: Health Check Lambda Alarm
+      TopicName: healthcheck-alarm
+      Subscription:
+        - Endpoint:
+            Fn::GetAtt:
+            - lambdaHealthCheckAlarm
+            - Arn
+          Protocol: lambda
+
+  lambdaHealthCheckPermission:
+    Type: AWS::Lambda::Permission
+    Description: Permission for SNS topic to invoke Health Check Alarm Lambda function
+    DependsOn: snsHealthCheckAlarmTopic
+    Properties:
+      FunctionName: !GetAtt lambdaHealthCheckAlarm.Arn
+      Action: lambda:InvokeFunction
+      Principal: sns.amazonaws.com
+      SourceArn: !Ref snsHealthCheckAlarmTopic
+
+  cwHealhCheckAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Description: CloudWatch Alarm based on metric of Health Check Lambda log group
+    Properties:
+      AlarmActions:
+        - !Ref snsHealthCheckAlarmTopic
+      AlarmDescription: Send SNS messages to given topic when Health Check produces error
+      AlarmName: alarm-healthcheck
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      DatapointsToAlarm: 1
+      EvaluationPeriods: 1
+      MetricName: hcError
+      Namespace: healthcheck
+      Period: 60
+      Statistic: SampleCount
+      Threshold: 1
+      TreatMissingData: notBreaching
+
+Outputs:
+  LambdaHealthCheckId:
+    Description: ID of Health Check Lambda function.
+    Value: !Ref lambdaHealthCheck
+
+  LambdaHealthCheckArn:
+    Description: ARN of Health Check Lambda function.
+    Value: !GetAtt lambdaHealthCheck.Arn
+
+  LogGroupHealthCheckName:
+    Description: ID of Health Check Lambda log group.
+    Value: !Ref logGroupHealthCheck
+
+  LogGroupHealthCheckArn:
+    Description: ARN of Health Check Lambda log group.
+    Value: !GetAtt logGroupHealthCheck.Arn
+
+  LambdaHealthCheckAlarmId:
+    Description: ID of Health Check Alarm Lambda function.
+    Value: !Ref lambdaHealthCheckAlarm
+
+  LambdaHealthCheckAlarmArn:
+    Description: ARN of Health Check Alarm Lambda function.
+    Value: !GetAtt lambdaHealthCheckAlarm.Arn
+
+  CloudWatchHealhCheckAlarmId:
+    Description: ID of Health Check Alarm
+    Value: !Ref cwHealhCheckAlarm
+
+  SnsHealthCheckAlarmTopic:
+    Description: ARN of SNS Health Check Alarm Topic
+    Value: !Ref snsHealthCheckAlarmTopic

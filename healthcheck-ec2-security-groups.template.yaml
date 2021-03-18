@@ -1,0 +1,60 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Create Security groups for VPC endpont and for Lambda function
+Parameters:
+  Environment:
+    Description: Environment tier
+    Type: String
+    AllowedValues:
+      - dev
+      - test
+      - qa
+      - stage
+      - prod
+  VpcId:
+    Description: Current VPC Id
+    Type: String
+  VpcDefaultSgId:
+    Description: Current VPC default security group id
+    Type: String
+Resources:
+  HealthcheckLambdaSG:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupName: !Join
+        - '-'
+        - - lambda-healthcheck-sg
+          - !Ref Environment
+      GroupDescription: Allow same level access as VPC default SG to AWS services
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          SourceSecurityGroupId: !Ref VpcDefaultSgId
+  VPCEndpointSG:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupName: !Join
+        - '-'
+        - - Vpce-sg
+          - !Ref Environment
+      GroupDescription: Allow access from HealthCheck Lambda function to AWS services
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          SourceSecurityGroupId: !GetAtt HealthcheckLambdaSG.GroupId
+Outputs:
+  HealthcheckLambdaSGId:
+    Description: HealthcheckLambdaSG security group ID
+    Value:
+      Fn::GetAtt:
+        - HealthcheckLambdaSG
+        - GroupId
+  VPCEndpointSGId:
+    Description: VPCEndpointSG security group ID
+    Value:
+      Fn::GetAtt:
+        - VPCEndpointSG
+        - GroupId

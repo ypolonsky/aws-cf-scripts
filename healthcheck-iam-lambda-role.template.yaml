@@ -1,0 +1,91 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Creates Roles for HealthCheck Lambda funtion and HealthCheck Alarm Notification Lambda function
+Parameters:
+  Environment:
+    Description: Environment tier
+    Type: String
+    AllowedValues:
+      - dev
+      - test
+      - qa
+      - stage
+      - prod
+Resources:
+  lambdaHealthCheckRole:
+    Description: >-
+      Lambda function tests given URL for health.
+      It must access CloudWatch logs, VPC endpoints, DynamoDB table, and Secrets Manager
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join
+        - '-'
+        - - lambda-healthcheck
+#          - !Ref Environment
+#          - role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+        - arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess
+        - arn:aws:iam::aws:policy/SecretsManagerReadWrite
+      Path: /
+  lambdaHealthCheckAlarmRole:
+    Description: >-
+      Lambda function processes SNS messages produced by CloudWatch alarms.
+      It must access CloudWatch logs, SNS topics and DynamoDB table
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join
+        - '-'
+        - - lambda-healthcheck-alarm
+#          - !Ref Environment
+#          - role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/AmazonSNSFullAccess
+        - arn:aws:iam::aws:policy/AmazonSESFullAccess
+        - arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess
+        - arn:aws:iam::aws:policy/CloudWatchLogsReadOnlyAccess
+      Path: /
+Outputs:
+  LambdaHealthCheckRoleName:
+    Description: Name of role for Lambda HealthCheck function.
+    Value:
+      Ref: lambdaHealthCheckRole
+  LambdaHealthCheckRoleArn:
+    Description: ARN of role for Lambda HealthCheck function.
+    Value:
+      Fn::GetAtt:
+      - lambdaHealthCheckRole
+      - Arn
+  LambdaHealthCheckAlarmRoleName:
+    Description: Name of role for Lambda HealthCheck Alarm function.
+    Value:
+      Ref: lambdaHealthCheckAlarmRole
+  LambdaHealthCheckAlarmRoleArn:
+    Description: ARN of role for Lambda HealthCheck Alarm function.
+    Value:
+      Fn::GetAtt:
+      - lambdaHealthCheckAlarmRole
+      - Arn
+

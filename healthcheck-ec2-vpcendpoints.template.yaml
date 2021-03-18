@@ -1,0 +1,56 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Creates VPC endpoint to connect to Secrets Manager through secure link
+Parameters:
+  VpcId:
+    Description: Current VPC Id
+    Type: String
+  SubnetId:
+    Description: Subnet ID for EC2 instance
+    Type: String
+  VPCEndpointSGId:
+    Description: HealthcheckLambdaSG security group ID
+    Type: String
+Resources:
+#  VpcEndpontKMS:
+#    Type: AWS::EC2::VPCEndpoint
+#    Properties:
+#      PolicyDocument:
+#        Version: '2012-10-17'
+#        Statement:
+#          - Effect: Allow
+#            Principal: '*'
+#            Action: '*'
+#            Resource: '*'
+#      PrivateDnsEnabled: true
+#      VpcEndpointType: Interface
+#      SecurityGroupIds:
+#        - !Ref VPCEndpointSGId
+#      ServiceName: com.amazonaws.us-east-1.kms
+#      VpcId: !Ref VpcId
+#      SubnetIds:
+#        - !Ref SubnetId
+  VpcEndpontSecrets:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: '*'
+            Action: '*'
+            Resource: '*'
+      PrivateDnsEnabled: true
+      VpcEndpointType: Interface
+      SecurityGroupIds:
+        - !Ref VPCEndpointSGId
+      ServiceName: com.amazonaws.us-east-1.secretsmanager
+      VpcId: !Ref VpcId
+      SubnetIds:
+        - !Ref SubnetId
+Outputs:
+#  VpcEndpontKMSId:
+#    Description: VPC Endpoint KMS Id
+#    Value: !Ref VpcEndpontKMS
+  VpcEndpontSecretsId:
+    Description: VPC Endpoint Secrets Manager Id
+    Value: !Ref VpcEndpontSecrets

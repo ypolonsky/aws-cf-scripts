@@ -1,0 +1,127 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Client Applications setup for monitoring
+Parameters:
+  SnsHealthCheckAlarmTopic:
+    Description: ARN of SNS Health Check Alarm Topic.
+    Type: String
+  LambdaFunctionHealthCheckArn:
+    Description: ARN of role for Lambda HealthCheck function.
+    Type: String
+  LogGroupHealthCheckName:
+    Description: Lambda HealthCheck function CloudWatch Log Group Name.
+    Type: String
+
+Resources:
+  EventRuleHealthCheck:
+    Type: "AWS::Events::Rule"
+    Description: CloudWatch Event to invoke Health Check Alarm Lambda function.  One target per client application.
+    Properties:
+      Description: "CloudWatch Event Rule to invoke HealthCheck lambda function on a regular basic"
+      ScheduleExpression: "rate(5 minutes)"
+      State: ENABLED
+      Targets:
+        #
+        # One target per client application URL
+        #
+        -
+          Arn: !Ref LambdaFunctionHealthCheckArn
+          Id: google-com-target
+#
+# !!!!! Copy the next line for the new target - fill values - remove secret key-pair if authentication is not required
+#         Input: "{\"url\": \"<ENTER URL>\", \"email\": \"<ENTER COMMA SEPARATED EMAILS>\", \"secret\": \"<ENTER SECRET KEY>\"}"
+#
+          Input: "{\"url\": \"http://www.google.com\", \"email\": \"yakov.polonsky@nih.gov\"}"
+        -
+          Arn: !Ref LambdaFunctionHealthCheckArn
+          Id: microsoft-com-target
+          Input: "{\"url\": \"http://www.microsoft.com\", \"email\": \"cole.devries@nih.gov\"}"
+
+  PermissionForEventsToInvokeLambda:
+    Type: AWS::Lambda::Permission
+    Description: Permission for CloudWatch Event to invoke Health Check Alarm Lambda function
+    Properties:
+      FunctionName: !Ref LambdaFunctionHealthCheckArn
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt EventRuleHealthCheck.Arn
+
+# One metric and one alarm per event target
+# Filter pattern should include URL string
+# Metric Namespace is always "healthcheck"
+# Metric Name is unique for each client application
+  MetricGoogleCom:
+    Type: AWS::Logs::MetricFilter
+    Description: Contains Metric Filter and Metric to create CloudWatch Alarm
+    Properties:
+      FilterPattern: "{$.status = ERROR && $.url = \"http://www.google.com\"}"
+      LogGroupName: !Ref LogGroupHealthCheckName
+      MetricTransformations:
+        - MetricValue: 1
+          MetricNamespace: healthcheck
+          MetricName: googleComError
+
+  MetricMicrosoftCom:
+    Type: AWS::Logs::MetricFilter
+    Description: Contains Metric Filter and Metric to create CloudWatch Alarm
+    Properties:
+      FilterPattern: "{$.status = ERROR && $.url = \"http://www.microsoft.com\"}"
+      LogGroupName: !Ref LogGroupHealthCheckName
+      MetricTransformations:
+        - MetricValue: 1
+          MetricNamespace: healthcheck
+          MetricName: microsoftComError
+
+# One alarm per client application
+# MetricName is unique per client application
+# AlarmName is unique per client application
+# Optionally, evaluation period parameters can be modified
+  GoogleComAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Description: CloudWatch Alarm based on metric of Health Check Lambda log group
+    Properties:
+      AlarmActions:
+        - !Ref SnsHealthCheckAlarmTopic
+      AlarmDescription: Send SNS messages to given topic when Health Check produces error
+      AlarmName: alarm-healthcheck-google-com
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      DatapointsToAlarm: 1
+      EvaluationPeriods: 1
+      MetricName: googleComError
+      Namespace: healthcheck
+      Period: 60
+      Statistic: SampleCount
+      Threshold: 1
+      TreatMissingData: notBreaching
+
+  MicrosoftComAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Description: CloudWatch Alarm based on metric of Health Check Lambda log group
+    Properties:
+      AlarmActions:
+        - !Ref SnsHealthCheckAlarmTopic
+      AlarmDescription: Send SNS messages to given topic when Health Check produces error
+      AlarmName: alarm-healthcheck-microsoft-com
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      DatapointsToAlarm: 1
+      EvaluationPeriods: 1
+      MetricName: microsoftComError
+      Namespace: healthcheck
+      Period: 60
+      Statistic: SampleCount
+      Threshold: 1
+      TreatMissingData: notBreaching
+
+Outputs:
+  GoogleComAlarm:
+    Description: Alarm Name for Google application
+    Value: !Ref GoogleComAlarm
+  GoogleComAlarmArn:
+    Description: Alarm Name for Google application
+    Value: !GetAtt GoogleComAlarm.Arn
+  MicrosoftComAlarm:
+    Description: Alarm Name for Google application
+    Value: !Ref MicrosoftComAlarm
+  MicrosoftComAlarmArn:
+    Description: Alarm Name for Google application
+    Value: !GetAtt MicrosoftComAlarm.Arn
